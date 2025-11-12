@@ -1,6 +1,14 @@
 # Trading System Code Guide
 
-This guide provides step-by-step instructions for running the complete trading system pipeline, from training models to backtesting strategies on both EBX and EBY datasets.
+This guide provides step-by-step instructions for running the complete trading system pipeline, from training models to backtesting strategies on both EBX and EBY datasets. Before starting make sure to have the dataset folder 'EBX' in 'FINAL_SUB_X' folder and 'EBY'and'EBX' both in the 'FINAL_SUB_Y' folder .
+Also run:
+
+```bash
+pip install requirements.txt
+```
+
+to install the neccessary libraries.
+
 
 ## Quick Start: Getting Backtest Results First
 
@@ -109,15 +117,19 @@ Testing generates trading signals on unseen data using the trained model.
 
 **For EBX:**
 ```bash
-python EBX.py test --config config_EBX.json
+python EBX.py test --days MODELS/test_days_EBX.txt --config config_EBX.json
+or 
+python EBX.py test --config config_EBX.json  # if already ran train
 ```
 **For EBY:**
 ```bash
-python EBY.py test --config config_EBY.json
+python EBY.py test --days MODELS/test_days_EBY.txt --config config_EBY.json
+or 
+python EBY.py test --config config_EBY.json  # if already ran train
 ```
 
 1. **Test Data Preparation (`prepare_test_data`)**
-   - Loads test days from `MODELS/test_days_EBX.txt`s
+   - Loads test days from `MODELS/test_days_EBX.txt`
    - Applies same feature engineering pipeline as training
    - Creates sequences with stride=4 (one prediction every 4 timesteps)
    - Scales features using saved scaler
