@@ -1,520 +1,239 @@
-# Trading System Code Guide
-
-This guide provides step-by-step instructions for running the complete trading system pipeline, from training models to backtesting strategies on both EBX and EBY datasets. Before starting make sure to have the dataset folder 'EBX' in 'FINAL_SUB_X' folder and 'EBY'and'EBX' both in the 'FINAL_SUB_Y' folder .
-Also run:
-
-```bash
-pip install requirements.txt
+pip install numpy pandas gymnasium stable-baselines3 torch tqdm matplotlib
 ```
 
-to install the neccessary libraries.
-
-
-## Quick Start: Getting Backtest Results First
-
-If you want to see backtest results immediately using pre-trained models and pre-generated signals for both EBY and EBX:
-
-```bash
-python Backtest_EBX_EBY.py config.json
+### Step 2: Prepare Data
+Place your raw tick data CSV files in a folder (e.g., `EBX/`):
+```
+EBX/
+├── day1.csv
+├── day2.csv
+└── day3.csv
 ```
 
-This runs the **combined backtest** using signals from both `FINAL_SUB_X/SIGNALS_EBX` and `FINAL_SUB_Y/SIGNALS_EBY` as specified in `config.json`.
+Each CSV should have columns: `Time, Price`
 
-**For individual strategy backtests:**
-
-```bash
-# EBX backtest with ebullient strategy
-cd FINAL_SUB_X
-python EBX.py backtest_ebullient --config config_EBX.json
-
-# EBY backtest with ebullient strategy
-cd FINAL_SUB_Y
-python EBY.py backtest_ebullient --config config_EBY.json~
-```
-
-### What Happens:
-1. Loads pre-generated signal CSV files from `SIGNALS_EBX/` or `SIGNALS_EBY/`
-2. Executes trades based on BUY/SELL/EXIT signals
-3. Calculates PnL, Ratios and performance metrics
-4. Generates plots and detailed reports
-5. Outputs results to `PHOTOS_EBX/ebullient_backtest/` or `PHOTOS_EBY/ebullient_backtest/`
+### Step 3: Run Pipeline
 
 ---
 
-## Understanding the System
+## Commands Explained
 
-**Strategy Flow:**
-```
-Raw Data → Feature Engineering → Model Training → 
-Signal Generation → Candle-Based Strategy → Backtesting
-```
-
-**Candle-Based Strategy:**
-- Aggregates tick-level predictions into candle periods (20min for EBX, 25min for EBY)
-- Counts long/short predictions within each candle
-- Opens positions when signal strength exceeds threshold
-- Closes positions based on opposite signals or risk management rules
-
----
-
-## Complete Pipeline Walkthrough
-
-### Step 1: Train the Model
-
-Training builds an XGBoost model that predicts trading signals from engineered features.
-
-**For EBX:**
-```bash
-python EBX.py train --days MODELS/train_days_EBX.txt --config config_EBX.json
-or 
-python EBX.py train --days 250 --config config_EBX.json
-```
-
-**For EBY:**
-```bash
-python EBY.py train --days MODELS/train_days_EBY.txt --config config_EBY.json
-or 
-python EBY.py train --days 250 --config config_EBY.json
-```
+### Command 1: `python script.py train EBX`
 
 **What Happens:**
 
-1. **Data Preparation (`prepare_train_data`)**
-   - Loads raw CSV files from `EBX/` or `EBY/` directory
-   - For EBY: Randomly selects from EBY days 0-278, supplements with EBX if needed
-   - For EBX: Randomly selects from EBX days 0-509
-   - Applies feature engineering pipeline:
-     - **Time features**: Cyclical encoding (hour/minute sin/cos)
-     - **Kalman filter**: Smooths price, generates slope-based signals
-     - **Regime detection**: CUSUM algorithm for market state
-     - **Custom features**: Composite indicators from price/volume bands
-   - Creates sequences with lookback window (30 timesteps)
-   - Balances classes using hold_ratio sampling
-   - Saves preprocessed arrays to `train_data_EBX/` or `train_data_EBY/`
-   - **Outputs:**
-     - `train_data_EBX/X_day*.npy` - Feature sequences
-     - `train_data_EBX/y_day*.npy` - Label sequences  
-     - `train_data_EBX/train_days_EBX.txt` - List of training days
-     - `train_data_EBX/test_days_EBX.txt` - Remaining days for testing
+1. **Data Resampling** (5-10 mins)
+   - Reads tick data from `EBX/` folder
+   - Converts to 2-minute OHLC candles
+   - Saves to `EBX_2min/` (skips if already exists)
+   - Creates `train_days_EBX.txt` and `test_days_EBX.txt`
 
-2. **Model Training (`train_model`)**
-   - Loads preprocessed data in batches (memory-efficient)
-   - Fits RobustScaler on first batch
-   - Flattens 3D sequences (samples, timesteps, features) → 2D (samples, timesteps×features)
-   - Splits data 80/20 for train/validation
-   - Trains XGBoost classifier (3 classes: Hold, Long, Short)
-   - Uses early stopping to prevent overfitting
-   - **Outputs:**
-     - `MODELS/xgb_model_EBX.json` or `MODELS/xgb_model_EBY.json` - Trained model
-     - `MODELS/scaler_EBX.pkl` or `MODELS/scaler_EBY.pkl` - Fitted scaler
-     - `MODELS/features_EBX.txt` or `MODELS/features_EBY.txt` - Feature names
+2. **Indicator Calculation** (10-30 mins)
+   - Precomputes 60+ technical indicators for ALL training days
+   - Applies 30-minute warmup window (discards first 30 mins of each day)
+   - Stores in memory (~10MB per day)
 
----
+3. **Model Training** (30-120 mins depending on CPU/GPU)
+   - Launches parallel environments (CPU cores - 2)
+   - Trains PPO model for 600,000 timesteps
+   - Prints training progress with tqdm bar
+   - Monitors: entropy loss, explained variance, policy loss
+   - GPU auto-detects and uses if available
 
-### Step 2: Generate Test Signals
+4. **Model Saving** (1 min)
+   - Saves trained model: `Models_EBX/ppo_trading_model_EBX.zip`
+   - Saves normalization stats: `Models_EBX/ppo_trading_model_EBX_vecnormalize.pkl`
+   - Generates training plots: `training_plots/EBX_training_metrics.png`
+   - Generates feature info: `feature_info_EBX.txt`
 
-Testing generates trading signals on unseen data using the trained model.
+**Expected Bugs & Solutions:**
 
-**For EBX:**
-```bash
-python EBX.py test --days MODELS/test_days_EBX.txt --config config_EBX.json
-or 
-python EBX.py test --config config_EBX.json  # if already ran train
-```
-**For EBY:**
-```bash
-python EBY.py test --days MODELS/test_days_EBY.txt --config config_EBY.json
-or 
-python EBY.py test --config config_EBY.json  # if already ran train
-```
-
-1. **Test Data Preparation (`prepare_test_data`)**
-   - Loads test days from `MODELS/test_days_EBX.txt`
-   - Applies same feature engineering pipeline as training
-   - Creates sequences with stride=4 (one prediction every 4 timesteps)
-   - Scales features using saved scaler
-   - **Outputs:**
-     - `test_data_EBX/X_test_day*.npy` - Scaled feature sequences
-     - `test_data_EBX/indices_day*.npy` - Original row indices for each prediction
-     - `test_data_EBX/prices_day*.npy` - Corresponding price values
-
-2. **Signal Generation (`generate_signals`)**
-   - Loads trained model and feature names
-   - Processes each test day:
-     - Makes predictions in batches
-     - Filters by confidence threshold (default 0.5)
-     - Creates OHLC candles from tick data
-     - Optionally detects whipsaw days (disabled by default)
-     - Runs candle-based strategy simulation:
-       - Aggregates predictions within candle periods
-       - Calculates signal strength (long_count - short_count)
-       - Opens positions when strength exceeds `threshold_open`
-       - Closes positions when strength falls below `threshold_close`
-       - Applies risk management (stops, take-profits, trailing stops)
-     - Generates BUY/SELL/EXIT signals aligned with price timestamps
-   - **Outputs:**
-     - `SIGNALS_EBX/day*_signals.csv` - Trading signals for each day
-       ```csv
-       Time,Price,BUY,SELL,EXIT
-       09:15:00,100.25,1,0,0
-       09:40:00,100.50,0,0,1
-       ```
-     - Console performance summary
+| Bug | Cause | Solution |
+|-----|-------|----------|
+| "All files already processed" | 2-min candles exist in `EBX_2min/` | Delete `EBX_2min/` folder to reprocess, or ignore (training continues) |
+| CUDA out of memory | GPU memory exceeded | Set `use_gpu=False` in code, or reduce `batch_size` from 4096 to 2048 |
+| Training stuck at 0% | Wrong data format | Check CSV has `Time` and `Price` columns exactly |
+| Memory error (RAM) | Too many training days loaded | Reduce training days or increase RAM |
+| "n_envs = 0" error | CPU detection failed | Manually set `NUM_PROCS` in PARAMS (e.g., 4) |
+| Model very small (~1MB) | Training interrupted | Rerun command (checkpoints may be corrupted) |
 
 ---
 
-### Step 3: Run Backtest
-
-Backtesting validates the generated signals using the BacktesterIIT framework.
-
-**Individual Strategy Backtest:**
-```bash
-python EBX.py backtest_ebullient --config config_EBX.json
-python EBY.py backtest_ebullient --config config_EBY.json
-```
-
-**Combined Strategy Backtest:**
-```bash
-python Backtest_EBX_EBY.py config.json
-```
+### Command 2: `python script.py test EBX`
 
 **What Happens:**
 
-1. **Signal Loading**
-   - Reads signal CSV files from `SIGNALS_EBX/` or `SIGNALS_EBY/`
-   - Creates time-indexed dictionary for fast lookup
-   - Maps signal timestamps to price ticks
+1. **Model Loading** (2 mins)
+   - Loads trained model from `Models_EBX/ppo_trading_model_EBX.zip`
+   - Loads normalization stats from `Models_EBX/ppo_trading_model_EBX_vecnormalize.pkl`
+   - Verifies both files exist
 
-2. **Backtesting Engine**
-   - For each day:
-     - Creates temporary config file
-     - Initializes BacktesterIIT with transaction costs
-     - Processes each tick chronologically:
-       - Checks for matching signal timestamp
-       - Executes BUY/SELL/EXIT orders
-       - Updates positions and PnL
-       - Records trade history
-     - Generates per-day plots showing:
-       - Price chart with entry/exit markers
-       - Rolling signal counts
-       - Cumulative PnL curve
+2. **Per-Day Backtesting** (2-5 mins per day, depends on test days count)
+   - For each test day:
+     - Loads 2-min candle data
+     - Calculates indicators (with 30-min warmup)
+     - Runs model forward with `deterministic=True`
+     - Records every trade entry/exit with price and timestamp
+     - Calculates daily P&L in basis points (bps)
+     - Generates signals (BUY, SELL, EXIT)
 
-3. **Results Aggregation**
-   - Combines results across all days
-   - Calculates comprehensive metrics:
-     - Returns, Sharpe ratio, max drawdown
-     - Win rates, profit factors
-     - Average trade statistics
-   - Generates detailed report
-   - **Outputs:**
-     - `PHOTOS_EBX/ebullient_backtest/day_*_backtest.png` - Per-day visualizations
-     - Console report with detailed statistics
+3. **Trade Analysis** (1 min)
+   - Calculates per-trade PnL
+   - Counts winning/losing trades
+   - Computes win rate
+   - Tracks highest/lowest prices for trailing stops
 
----
+4. **Output Generation** (2 mins)
+   - Saves all signals to CSV: `signals_EBX/day123.csv`
+   - Generates price charts: `test_trade_plots/EBX_day_1_day123.png`
+   - Calculates equity curve and drawdown
+   - Saves equity plot: `test_results/EBX_equity_drawdown.png`
+   - Writes report: `test_results/test_results_EBX.txt`
+   - **Prints to console:** Trade log with timestamps, prices, positions
 
-## Directory Structure Reference
+**Expected Bugs & Solutions:**
 
-After running the complete pipeline, you'll have the following structure:
-
-```
-FINAL_SUB_X/
-│
-├── EBX/                         # Raw data for EBX
-│   ├── day0.csv
-│   ├── day1.csv
-│   └── ...
-│
-├── MODELS/                      # Trained models and artifacts
-│   ├── xgb_model_EBX.json       # XGBoost model for EBX
-│   ├── scaler_EBX.pkl           # Feature scaler for EBX
-│   └── features_EBX.txt         # Feature names
-│
-├── train_data_X/               # EBX training data
-│   ├── X_day*.npy              # Feature sequences (samples, 30, num_features)
-│   ├── y_day*.npy              # Labels (samples,) - values: 0, 1, 2
-│   ├── train_days_X.txt        # List of days used for training
-│   └── test_days_X.txt         # Remaining days for testing
-│
-├── test_data_X/                # EBX test sequences
-│   ├── X_test_day*.npy         # Scaled features for prediction
-│   ├── indices_day*.npy        # Original row indices
-│   └── prices_day*.npy         # Corresponding prices
-│
-├── SIGNALS_EBX/                # Generated signals for EBX
-│   ├── day0_signals.csv        # Columns: Time, Price, BUY, SELL, EXIT
-│   ├── day1_signals.csv        # BUY/SELL/EXIT: binary flags (0 or 1)
-│   └── ...
-│
-├── PHOTOS_EBX/                 # EBX visualizations and reports
-│   ├── feat_imp.csv            # Feature importance scores
-│   ├── feat_imp_top30.png      # Top 30 features bar chart
-│   ├── cm.png                  # Confusion matrix heatmap
-│   └── ebullient_backtest/     # Backtest results
-│       ├── day_000_backtest.png  # Price + signals + PnL plots
-│       ├── day_001_backtest.png
-│       └── ...
-│
-├── EBX.py                       # Main script for EBX pipeline
-└──  config_EBX.json             # Configuration for EBX
-```
-
-### File Role Explanations
-
-#### Raw Data Files (`EBX/`, `EBY/`)
-- **day*.csv**: Tick-level price data with pre-computed features
-  - Columns include: `Time`, `Price`, `PB*_T*`, `VB*_T*`, `BB*`, etc.
-  - Each row represents one market tick
-
-#### Model Files (`MODELS/`)
-- **xgb_model_*.json**: Serialized XGBoost model (readable JSON format)
-- **scaler_*.pkl**: Fitted RobustScaler for feature normalization
-- **features_*.txt**: Ordered list of feature names used by model
-  - Format: `F0_T29, F0_T28, ..., F0_T0, F1_T29, ...`
-  - Flattened from (timesteps, features) → (timesteps × features)
-
-#### Training Data (`train_data_EBX/`, `train_data_EBY/`)
-- **X_day*.npy**: 3D arrays `(samples, lookback, features)`
-  - Each sample is a sequence of 30 consecutive timesteps
-  - Features include engineered indicators, time encodings, regime signals
-- **y_day*.npy**: 1D arrays `(samples,)` with class labels
-  - `0`: Hold (no action)
-  - `1`: Buy Short (EBX) / Buy Long (EBY)
-  - `2`: Buy Long (EBX) / Buy Short (EBY)
-- **train_days_*.txt**: Training set day numbers
-- **test_days_*.txt**: Test set day numbers
-
-#### Test Data (`test_data_EB/`, `test_data_EB/`)
-- **X_test_day*.npy**: 2D arrays `(samples, timesteps × features)`
-  - Flattened and scaled, ready for prediction
-  - Created with stride=4 (one prediction per 4 ticks)
-- **indices_day*.npy**: Maps predictions back to original CSV rows
-- **prices_day*.npy**: Price at each prediction point
-
-#### Signal Files (`SIGNALS_EBX/`, `SIGNALS_EBY/`)
-- **day*_signals.csv**: Trading signals aligned with price data
-  - `Time`: Timestamp (HH:MM:SS format)
-  - `Price`: Market price at signal time
-  - `BUY`: 1 if open long position, else 0
-  - `SELL`: 1 if open short position, else 0
-  - `EXIT`: 1 if close current position, else 0
-  - Only one flag is 1 per row; most rows are all 0s
-
-#### Visualization Files (`PHOTOS_EBX/`, `PHOTOS_EBY/`)
-- **feat_imp.csv**: Feature importance sorted by gain
-- **feat_imp_top30.png**: Bar chart of most important features
-- **cm.png**: Confusion matrix for validation set
-- **ebullient_backtest/day_*_backtest.png**: Three-panel plots
-  1. Price with BUY (green ^), SELL (red v), EXIT (orange x) markers
-  2. Rolling 20-candle signal counts
-  3. Cumulative PnL curve with final value annotation
+| Bug | Cause | Solution |
+|-----|-------|----------|
+| "KeyError: -1" | current_step exceeded data length | Fixed in latest code - use `last_step_idx = current_step - 1` with bounds check |
+| Timestamps show wrong time (+34 mins) | Using 30-min candle timestamps on 2-min data | Fixed - now uses original timestamps from `indicators_df_with_index` |
+| "VecNormalize file not found" | Didn't run train command first | Run `python script.py train EBX` first |
+| All trades losing | Model overtrained on train set (overfitting) | Train on more diverse data or reduce training episodes |
+| 0 trades executed | Model learned to always hold | Increase `TRADE_ENTRY_PENALTY` (currently -5) or check reward scaling |
+| Wrong number of test days | `test_days_EBX.txt` corrupted | Delete it and retrain |
 
 ---
 
-## Configuration Parameters
+### Command 3: `python script.py test EBX day123`
 
-### Key Parameters in `config_X.json` and `config_Y.json`
+**What Happens:**
 
-#### Paths
-```json
-"paths": {
-  "data_dir": "EBX",                    // Raw data directory
-  "train_data_dir": "train_data_EBX",     // Preprocessed training data
-  "test_data_dir": "test_data_EBX",       // Preprocessed test data
-  "signals_dir": "SIGNALS_EBX",         // Generated signals output
-  "plots_dir": "PHOTOS_EBX",            // Visualizations output
-  "model_file": "MODELS/xgb_model_EBX.json",
-  "scaler_file": "MODELS/scaler_EBX.pkl",
-  "feature_names_file": "MODELS/features_EBX.txt"
-}
-```
+1. **Specific Day Filtering** (1 sec)
+   - Searches for `day123` in test file list
+   - Only tests that single day (not all test days)
+   - Useful for debugging specific days
 
-#### Feature Engineering
-```json
-"features": {
-  "families": ["PB1_T", "PB2_T", ...],  // Feature prefixes to extract
-  "max_t": 6,                            // Maximum T-level to include
-  "max_t_drop": 120                      // Initial rows to drop (warmup)
-}
-```
+2. **Backtesting** (Same as Command 2, but only 1 day)
+   - Loads model and normalizer
+   - Runs backtest on `day123` only
+   - Generates trade plot, signals, and metrics
+   - Prints detailed trade log to console
 
-#### Kalman Filter
-```json
-"kalman": {
-  "q": 0.00001,                          // Process noise
-  "r": 1.0,                              // Observation noise
-  "slope_period": 5,                     // Periods for slope calculation
-  "slope_std_mult": 1.0                  // Threshold multiplier
-}
-```
+3. **Output** (Same outputs as Command 2, but for single day)
 
-#### Regime Detection (CUSUM)
-```json
-"regime": {
-  "t": 7,                                // Primary T-level
-  "rst": 8,                              // Reset T-level
-  "lim": 15,                             // CUSUM limit
-  "th": 2                                // Regime threshold
-}
-```
+**Expected Bugs & Solutions:**
 
-#### Training
-```json
-"training": {
-  "lookback": 30,                        // Sequence length (timesteps)
-  "hold_ratio": 1.0,                     // Hold samples / Action samples
-  "batch_size": 60000,                   // Samples per batch
-  "early_stop": 400                      // Early stopping rounds
-}
-```
-
-#### XGBoost
-```json
-"xgboost": {
-  "objective": "multi:softprob",         // Multi-class classification
-  "num_class": 3,                        // Hold, Long, Short
-  "max_depth": 3,                        // Tree depth
-  "learning_rate": 0.04,                 // Step size
-  "n_estimators": 1200,                  // Number of trees
-  "subsample": 0.7,                      // Row sampling
-  "colsample_bytree": 0.7                // Column sampling
-}
-```
-
-#### Testing
-```json
-"testing": {
-  "stride": 4,                           // Prediction interval
-  "confidence_threshold": 0.5,           // Minimum prediction confidence
-  "prediction_batch_size": 10000         // Samples per prediction batch
-}
-```
-
-#### Candle Strategy
-```json
-"strategy": {
-  "candle_minutes": 20,                  // Candle period (EBX: 20, EBY: 25)
-  "threshold_open": 10,                  // Signal strength to open
-  "threshold_close": 15,                 // Signal strength to close
-  "warmup_minutes": 5,                   // Initial warmup period
-  "whipsaw_detection": false             // Skip whipsaw days (optional)
-}
-```
-
-#### Risk Management
-```json
-"risk": {
-  "stop_loss_pct": 0.002,                // Stop loss (0.2%)
-  "take_profit_pct": 0.004,              // Take profit (0.4%)
-  "trailing_stop_pct": 0.0035,           // Trailing stop (0.35%)
-  "min_holding_time_seconds": 15,        // Minimum hold time
-  "min_time_between_trades_seconds": 15  // Cool-down period
-}
-```
-
-#### Backtesting
-```json
-"backtesting": {
-  "initial_capital": 100000,             // Starting capital
-  "transaction_cost_rate": 0.0002        // Transaction cost (0.02%)
-},
-"backtest": {
-  "ticker_name": "EBX",                  // Ticker symbol
-  "tcost": 2,                            // Transaction cost for BacktesterIIT
-  "timer_seconds": 600                   // Timer interval
-}
-```
-
-### Combined Backtest Configuration (`config.json`)
-
-```json
-{
-  "data_path": ".",                      // Root directory for data lookup
-  "start_date": 0,                       // First day to backtest
-  "end_date": 509,                       // Last day to backtest
-  "timer": 600,                          // Timer callback interval (seconds)
-  "tcost": 2,                            // Transaction cost
-  "broadcast": [                         // Signal directories to monitor
-    "FINAL_SUB_X/SIGNALS_EBX",
-    "FINAL_SUB_Y/SIGNALS_EBY"
-  ]
-}
-```
+| Bug | Cause | Solution |
+|-----|-------|----------|
+| "Day 123 not found" | Day not in test set or naming mismatch | Use exact day name from `test_days_EBX.txt` (e.g., `day123`, not `123` or `day_123`) |
+| Pattern matches multiple days | Using substring match (e.g., `day5` matches `day5`, `day50`, `day500`) | Use full day name like `day00005` with leading zeros |
+| CSV file has wrong name format | Filename doesn't match expected pattern | Check `signals_EBX/` folder for actual filenames |
 
 ---
 
-## Troubleshooting
+### Command 4: `python script.py backtest_ebullient EBX`
 
-### Common Issues and Solutions
+**What Happens:**
 
-#### 1. "No data files found" during training
-**Problem**: `EBX/` or `EBY/` directory is empty or misnamed.
+1. **Signal Loading** (1 sec)
+   - Finds all CSV files in `signals_EBX/` folder
+   - Numerically sorts by day number
+   - Validates files exist
 
-**Solution**:
-```bash
-# Check directory exists and contains day*.csv files
-ls EBX/day*.csv | head
-ls EBY/day*.csv | head
-```
+2. **Temporary Directory Setup** (1 sec)
+   - Creates temporary folder with config.json
+   - Copies signal files to temp location
+   - Ebullient expects specific directory structure
 
-#### 2. "Missing columns" error during feature engineering
-**Problem**: Raw CSV doesn't contain expected feature columns.
+3. **Backtest Execution** (5-30 mins depending on days and trades)
+   - Initializes BacktesterIIT with config
+   - Runs Ebullient's market simulator
+   - For each signal:
+     - EXIT signal → Closes position
+     - BUY signal → Opens long (100 shares)
+     - SELL signal → Opens short (100 shares)
+   - Calculates slippage, fees, fills
 
-**Solution**:
-- Verify CSV has columns matching `config_*.json` feature families
-- Check `max_t` setting matches available T-levels in data
+4. **Results & Cleanup** (1 min)
+   - Prints position summary
+   - Displays P&L, drawdown, win rate
+   - Cleans up temporary files
 
-#### 3. Model prediction fails with shape mismatch
-**Problem**: Test data features don't match training features.
+**Expected Bugs & Solutions:**
 
-**Solution**:
-- Ensure same `config_*.json` used for train and test
-- Delete `test_data_*/` and regenerate with matching config
-- Check `features_*.txt` matches expected count
+| Bug | Cause | Solution |
+|-----|-------|----------|
+| "No signal files found" | Didn't run `test` command first | Run `python script.py test EBX` to generate signals |
+| "alpha_research module not found" | Ebullient library not installed | Install proprietary module or skip backtesting |
+| "day(\d+)" regex error | Signal file naming doesn't match pattern | Check files are named like `day1.csv`, `day2.csv` (not `day_1.csv`) |
+| Config file error | JSON formatting issue | Manually inspect `config.json` created in root |
+| "position_map error" | Ebullient API changed | Check BacktesterIIT version compatibility |
+| P&L mismatch vs test command | Different transaction cost calculations | Verify TRANSACTION_COST parameter is same in both |
 
-#### 4. Signal file not found during backtest
-**Problem**: Test step didn't complete or signals weren't generated.
-
-**Solution**:
-```bash
-# Check if signal files exist
-ls SIGNALS_EBX/*.csv | wc -l
-
-# Regenerate signals if missing
-python EBX.py test --config config_EBX.json
-```
-
-#### 5. Memory errors during training
-**Problem**: Insufficient RAM for large datasets.
-
-**Solution**:
-- Reduce `training.batch_size` in config (e.g., 30000)
-- Use fewer training days
-- Close other applications
-
-#### 6. Poor model performance (accuracy < 50%)
-**Problem**: Inadequate training or poor hyperparameters.
-
-**Solution**:
-- Increase training days (e.g., `--days 300`)
-- Adjust XGBoost parameters (learning_rate, max_depth)
-- Check class balance in training data
-- Review feature importance - remove weak features
-
-#### 7. Backtest PnL doesn't match test results
-**Problem**: Different execution logic or transaction costs.
-
-**Solution**:
-- Verify `tcost` matches in config files
-- Check risk management settings (stops, take-profits)
-- Compare signal files with backtest execution logs
-- Ensure timestamps align correctly
-
-#### 8. "Train_days.txt not found" during testing
-**Problem**: Training step wasn't completed successfully.
-
-**Solution**:
-```bash
-# Retrain to generate day lists
-python EBX.py train --days MODELS/train_day_EBY.txt --config config_EBX.json
-```
 ---
+
+## Feature Overview (Short)
+
+| Feature | What It Does |
+|---------|-------------|
+| **60+ Indicators** | RSI, CCI, CMO, KAMA, Aroon, Heikin-Ashi, Ribbon (gives model context) |
+| **2-Min Candles** | High-frequency intraday data (captures micro-trends) |
+| **Trailing Stop** | Locks in profits, exits if price drops 4 bps from peak |
+| **Hard Stop Loss** | Forced exit if loss hits -4 bps (risk management) |
+| **Asymmetric Rewards** | Losses penalized 4x more than profits (teaches risk aversion) |
+| **Trade Entry Penalty** | -5 reward per trade (prevents overtrading) |
+| **Parallel Training** | Uses all CPU cores for faster convergence |
+| **VecNormalize** | Standardizes observations and rewards for neural network stability |
+| **Deterministic Testing** | Same model decisions every test run (no randomness) |
+| **Signal Export** | Generates CSV for external backtesting platforms |
+
+---
+
+## Common Issues & Global Solutions
+
+### Issue 1: "PARAMS mismatch between training and testing"
+**Problem:** You changed stop loss/trailing stop but didn't retrain
+**Solution:** 
+- Training uses `STOP_LOSS_TR`, `TRAIL_PCT_TR`
+- Testing uses `STOP_LOSS_TE`, `TRAIL_PCT_TE` (can be different!)
+- Model learns exits based on TRAINING params
+- Testing params determine what exits are ENFORCED during test
+- If you change testing params, results will differ (but model hasn't relearned)
+
+### Issue 2: "Too many/too few trades"
+**Problem:** Model behavior doesn't match expectations
+**Solutions:**
+- Too many: Increase `TRADE_ENTRY_PENALTY` (currently -5) to -10 or -15
+- Too few: Decrease `TRADE_ENTRY_PENALTY` to 0 or -2
+- Too many stops: Decrease `STOP_LOSS` from -0.0004 to -0.0002
+- Retrain after changing parameters
+
+### Issue 3: "Lookahead bias in indicators"
+**Problem:** Using High/Low from same candle as decision
+**Current Status:** FIXED in latest code - using only Close prices
+**Check:** `candle_high` and `candle_low` should NOT exist, only `candle_close`
+
+### Issue 4: "Results don't reproduce"
+**Problem:** Same day gives different results each time
+**Cause:** `deterministic=False` or seed mismatch
+**Solution:** Verify `deterministic=True` in test command
+**Check:** PARAMS['SEED'] = 2 (should be consistent)
+
+---
+
+## File Checklist After Running
+```
+After train:
+✓ Models_EBX/ppo_trading_model_EBX.zip (2-5MB)
+✓ Models_EBX/ppo_trading_model_EBX_vecnormalize.pkl (100KB)
+✓ feature_info_EBX.txt (50KB)
+✓ train_days_EBX.txt (list of days)
+✓ test_days_EBX.txt (list of days)
+✓ training_plots/EBX_training_metrics.png (chart)
+✓ EBX_2min/ (folder with 2-min candles - auto-created)
+
+After test:
+✓ test_results/test_results_EBX.txt (report)
+✓ test_results/EBX_equity_drawdown.png (equity chart)
+✓ test_trade_plots/ (folder with per-day charts)
+✓ signals_EBX/ (folder with signal CSVs)
