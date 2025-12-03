@@ -122,23 +122,6 @@ EBX/
 
 ---
 
-## Feature Overview (Short)
-
-| Feature | What It Does |
-|---------|-------------|
-| **60+ Indicators** | RSI, CCI, CMO, KAMA, Aroon, Heikin-Ashi, Ribbon (gives model context) |
-| **2-Min Candles** | High-frequency intraday data (captures micro-trends) |
-| **Trailing Stop** | Locks in profits, exits if price drops 4 bps from peak |
-| **Hard Stop Loss** | Forced exit if loss hits -4 bps (risk management) |
-| **Asymmetric Rewards** | Losses penalized 4x more than profits (teaches risk aversion) |
-| **Trade Entry Penalty** | -5 reward per trade (prevents overtrading) |
-| **Parallel Training** | Uses all CPU cores for faster convergence |
-| **VecNormalize** | Standardizes observations and rewards for neural network stability |
-| **Deterministic Testing** | Same model decisions every test run (no randomness) |
-| **Signal Export** | Generates CSV for external backtesting platforms |
-
----
-
 ## Common Issues & Global Solutions
 
 ### Issue 1: "PARAMS mismatch between training and testing"
@@ -178,5 +161,6 @@ After test:
 ✓ test_trade_plots/ (folder with per-day charts)
 ✓ signals_EBX/ (folder with signal CSVs)
 ```
+
 
 
