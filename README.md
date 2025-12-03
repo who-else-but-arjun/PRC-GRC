@@ -1,3 +1,9 @@
+# RL Trading System - Complete Guide
+
+## Quick Start (3 Steps)
+
+### Step 1: Install Dependencies
+```bash
 pip install numpy pandas gymnasium stable-baselines3 torch tqdm matplotlib
 ```
 
@@ -222,6 +228,7 @@ Each CSV should have columns: `Time, Price`
 ---
 
 ## File Checklist After Running
+
 ```
 After train:
 ✓ Models_EBX/ppo_trading_model_EBX.zip (2-5MB)
@@ -237,3 +244,6 @@ After test:
 ✓ test_results/EBX_equity_drawdown.png (equity chart)
 ✓ test_trade_plots/ (folder with per-day charts)
 ✓ signals_EBX/ (folder with signal CSVs)
+```
+
+If any file is missing → something failed, check console output for errors.
