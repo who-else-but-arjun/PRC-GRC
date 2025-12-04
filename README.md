@@ -30,7 +30,6 @@ EBX/
 2. **Indicator Calculation** (1 min)
    - Precomputes 60+ technical indicators for ALL training days
    - Applies 30-minute warmup window (discards first 30 mins of each day)
-   - Stores in memory (~10MB per day)
 
 3. **Model Training** (5-10 mins depending on CPU/GPU)
    - Launches parallel environments (CPU cores - 2)
