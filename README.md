@@ -7,7 +7,7 @@ pip install numpy pandas gymnasium stable-baselines3 torch tqdm matplotlib
 ```
 
 ### Prepare Data
-Place your raw tick data CSV files in a folder (e.g., `EBX/`):
+Place your raw tick data CSV files in a folder (e.g., `EBX/`) or Specify the dataset folder in the PARAMS['SOURCE_FOLDER'] in the code:
 ```
 EBX/
 ├── day1.csv
@@ -17,7 +17,7 @@ EBX/
 
 ## Commands Explained
 
-### Command 1: `python script.py train EBX`
+### Command 1: `python <Ticker>.py train`
 
 **What Happens:**
 
@@ -47,7 +47,7 @@ EBX/
 
 ---
 
-### Command 2: `python script.py test EBX`
+### Command 2: `python <Ticker>.py test`
 
 **What Happens:**
 
@@ -56,7 +56,7 @@ EBX/
    - Loads normalization stats from `Models_EBX/ppo_trading_model_EBX_vecnormalize.pkl`
    - Verifies both files exist
 
-2. **Per-Day Backtesting** (2-5 mins per day, depends on test days count)
+2. **Per-Day Backtesting** 
    - For each test day:
      - Loads 2-min candle data
      - Calculates indicators (with 30-min warmup)
@@ -83,28 +83,28 @@ EBX/
 
 | Bug | Cause | Solution |
 |-----|-------|----------|
-| "VecNormalize file not found" | Didn't run train command first | Run `python script.py train EBX` first |
+| "VecNormalize file not found" | Didn't run train command first | Run `python <Ticker>.py train` first |
 | All trades losing | Model overtrained on train set (overfitting) | Train on more diverse data or reduce training episodes |
 | 0 trades executed | Model learned to always hold | Increase `TRADE_ENTRY_PENALTY` (currently -5) or check reward scaling |
 
 ---
 
-### Command 3: `python script.py test EBX day123`
+### Command 3: `python <Ticker>.py test 123`
 
 **What Happens:**
 
-1. **Specific Day Filtering** (1 sec)
+1. **Specific Day Filtering** 
    - Searches for `day123` in test file list
    - Only tests that single day (not all test days)
    - Useful for debugging specific days
 
 ---
 
-### Command 4: `python script.py backtest_ebullient EBX`
+### Command 4: `python <Ticker>.py backtest_ebullient`
 
 **What Happens:**
 
-1. **Backtest Execution** (5-30 mins depending on days and trades)
+1. **Backtest Execution** 
    - Initializes BacktesterIIT with config
    - Runs Ebullient's market simulator
    - For each signal:
